@@ -1,9 +1,8 @@
-// Neon PostgreSQL connection helper
-import { neon } from '@neondatabase/serverless';
+const { neon } = require('@neondatabase/serverless');
 
 let _sql = null;
 
-export function getDb() {
+function getDb() {
   if (!_sql) {
     if (!process.env.DATABASE_URL) {
       throw new Error('DATABASE_URL environment variable is not set');
@@ -13,8 +12,7 @@ export function getDb() {
   return _sql;
 }
 
-// Initialize all tables on first run
-export async function initDb() {
+async function initDb() {
   const sql = getDb();
 
   await sql`
@@ -79,7 +77,7 @@ export async function initDb() {
   return true;
 }
 
-export function corsHeaders() {
+function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
@@ -87,3 +85,5 @@ export function corsHeaders() {
     'Content-Type': 'application/json',
   };
 }
+
+module.exports = { getDb, initDb, corsHeaders };
