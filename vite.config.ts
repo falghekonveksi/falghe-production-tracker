@@ -8,19 +8,14 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          motion: ['framer-motion'],
-        },
-      },
-    },
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'client/src'),
       '@shared': path.resolve(__dirname, 'shared'),
     },
+  },
+  css: {
+    postcss: './client/postcss.config.js',
   },
 });
