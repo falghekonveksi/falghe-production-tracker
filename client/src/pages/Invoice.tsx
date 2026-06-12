@@ -27,7 +27,7 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
   const t = {
     id: {
       title: 'Invoice',
-      subtitle: 'Cari dan lihat invoice pesanan',
+      subtitle: 'Cari dan kelola invoice pesanan',
       inputPlaceholder: 'Masukkan kode pesanan (contoh: FLG-00001)',
       searchButton: 'Cari',
       noInvoice: 'Invoice tidak ditemukan',
@@ -56,7 +56,7 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
     },
     en: {
       title: 'Invoice',
-      subtitle: 'Search and view your order invoices',
+      subtitle: 'Search and manage order invoices',
       inputPlaceholder: 'Enter order code (e.g.: FLG-00001)',
       searchButton: 'Search',
       noInvoice: 'Invoice not found',
@@ -95,18 +95,30 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
       if (!res.ok) throw new Error('Not found');
       const data = await res.json();
       setFoundInvoice(data);
-      const fetchedItems = data.items || [];
-      setItems(fetchedItems.map((item: any) => ({
-        description: item.description || '',
-        quantity: item.quantity || 0,
-        unitPrice: item.unitPrice || item.unit_price || 0,
-        total: item.total || 0,
-      })));
+      const order = data.order;
+      if (data.items && data.items.length > 0) {
+        setItems(data.items.map((item: any) => ({
+          description: item.description || '',
+          quantity: item.quantity || 0,
+          unitPrice: item.unitPrice || item.unit_price || 0,
+          total: item.total || 0,
+        })));
+      } else if (order) {
+        setItems([{
+          description: `Produk ${order.size || ''} - ${order.quantity?.toLocaleString('id-ID') || 0} pcs`,
+          quantity: order.quantity || 0,
+          unitPrice: order.price_per_pcs || 0,
+          total: (order.quantity || 0) * (order.price_per_pcs || 0),
+        }]);
+      }
       setTaxRate(data.tax && data.subtotal ? Math.round((data.tax / data.subtotal) * 100) : 10);
-      setDueDate(data.order?.eta || '');
+      setDueDate(data.due_date || order?.eta || '');
       setIsEditing(false);
-    } catch { setError(t[language].noInvoice); }
-    finally { setIsLoading(false); }
+    } catch {
+      setError(t[language].noInvoice);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const updateItem = (index: number, field: keyof InvoiceItem, value: string | number) => {
@@ -120,9 +132,9 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
     setItems(updated);
   };
 
-  const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+  const subtotal = items.reduce((sum, item) => sum + (item.total || 0), 0);
   const tax = Math.round(subtotal * (taxRate / 100));
-  const total = subtotal + tax;
+  const grandTotal = subtotal + tax;
 
   const getStatusBadge = (status: string) => {
     if (status === 'paid') return 'bg-green-100 text-green-700';
@@ -160,7 +172,6 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
       </div>
 
       <div className="container max-w-3xl px-4 py-8">
-        {/* Search */}
         <div className="sbc-card p-6 mb-8">
           <div className="flex gap-2">
             <div className="flex-1 relative">
@@ -187,7 +198,6 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
             className="sbc-card p-8 bg-white">
 
-            {/* Invoice Header */}
             <div className="flex items-start justify-between mb-8 pb-8 border-b border-border">
               <div>
                 <img src="/falghe-logo.png" alt="Falghe" className="w-14 h-14 object-contain mb-3" />
@@ -203,7 +213,6 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
               </div>
             </div>
 
-            {/* Dates */}
             <div className="grid grid-cols-2 gap-8 mb-8">
               <div>
                 <p className="text-xs text-muted-foreground mb-1">{t[language].date}</p>
@@ -219,7 +228,6 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
               </div>
             </div>
 
-            {/* Bill To */}
             <div className="grid grid-cols-2 gap-8 mb-8">
               <div>
                 <p className="text-sm font-semibold mb-2">{t[language].from}</p>
@@ -234,39 +242,38 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
               </div>
             </div>
 
-            {/* Items Table */}
             <div className="mb-6">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b-2 border-border">
                     <th className="text-left py-3 font-semibold">{t[language].description}</th>
                     <th className="text-right py-3 font-semibold w-16">{t[language].quantity}</th>
-                    <th className="text-right py-3 font-semibold w-28">{t[language].unitPrice}</th>
-                    <th className="text-right py-3 font-semibold w-28">{t[language].total}</th>
+                    <th className="text-right py-3 font-semibold w-32">{t[language].unitPrice}</th>
+                    <th className="text-right py-3 font-semibold w-32">{t[language].total}</th>
                     {isEditing && <th className="w-8"></th>}
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item, idx) => (
                     <tr key={idx} className="border-b border-border">
-                      <td className="py-2">
+                      <td className="py-3">
                         {isEditing ? (
                           <input value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} className={`${inputClass} w-full`} />
                         ) : <span>{item.description}</span>}
                       </td>
-                      <td className="text-right py-2">
+                      <td className="text-right py-3">
                         {isEditing ? (
-                          <input type="number" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} className={`${inputClass} w-16 text-right ml-auto block`} />
-                        ) : <span>{item.quantity.toLocaleString()}</span>}
+                          <input type="number" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} className={`${inputClass} w-20 text-right ml-auto block`} />
+                        ) : <span>{item.quantity.toLocaleString('id-ID')}</span>}
                       </td>
-                      <td className="text-right py-2">
+                      <td className="text-right py-3">
                         {isEditing ? (
                           <input type="number" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} className={`${inputClass} w-full text-right`} />
                         ) : <span>Rp {item.unitPrice.toLocaleString('id-ID')}</span>}
                       </td>
-                      <td className="text-right py-2 font-medium">Rp {item.total.toLocaleString('id-ID')}</td>
+                      <td className="text-right py-3 font-medium">Rp {item.total.toLocaleString('id-ID')}</td>
                       {isEditing && (
-                        <td className="py-2 pl-2">
+                        <td className="py-3 pl-2">
                           <button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600">
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -284,16 +291,15 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
               )}
             </div>
 
-            {/* Totals */}
             <div className="flex justify-end mb-8">
               <div className="w-full sm:w-80">
                 <div className="flex justify-between py-2 border-b border-border mb-2">
-                  <span>{t[language].subtotal}</span>
+                  <span className="text-muted-foreground">{t[language].subtotal}</span>
                   <span className="font-medium">Rp {subtotal.toLocaleString('id-ID')}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-border mb-4">
                   <div className="flex items-center gap-2">
-                    <span>{t[language].tax}</span>
+                    <span className="text-muted-foreground">{t[language].tax}</span>
                     {isEditing ? (
                       <div className="flex items-center gap-1">
                         <input type="number" value={taxRate} min={0} max={100}
@@ -307,14 +313,15 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
                   </div>
                   <span className="font-medium">Rp {tax.toLocaleString('id-ID')}</span>
                 </div>
-                <div className="flex justify-between py-3 bg-[#FB5F02]/10 px-4 rounded-lg">
+                <motion.div key={grandTotal} initial={{ scale: 0.97 }} animate={{ scale: 1 }}
+                  className="flex justify-between py-3 px-4 rounded-lg"
+                  style={{ background: 'rgba(251,95,2,0.08)' }}>
                   <span className="font-bold">{t[language].grandTotal}</span>
-                  <span className="font-bold text-[#FB5F02] text-lg">Rp {total.toLocaleString('id-ID')}</span>
-                </div>
+                  <span className="font-bold text-[#FB5F02] text-lg">Rp {grandTotal.toLocaleString('id-ID')}</span>
+                </motion.div>
               </div>
             </div>
 
-            {/* Edit Toggle */}
             <div className="flex justify-end mb-6">
               <button onClick={() => setIsEditing(!isEditing)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isEditing ? 'bg-[#FB5F02] text-white hover:bg-[#E85500]' : 'border border-border hover:bg-secondary'}`}>
@@ -322,7 +329,6 @@ export function Invoice({ language, onBackToTracking }: InvoiceProps) {
               </button>
             </div>
 
-            {/* Footer */}
             <div className="pt-8 border-t border-border text-center">
               <p className="text-sm text-muted-foreground">{t[language].footerNote}</p>
             </div>
