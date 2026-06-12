@@ -3,6 +3,20 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Upload, AlertCircle, CheckCircle2, Loader, ArrowLeft, Trash2, Clock } from 'lucide-react';
 import { getOrderByCode, getProductionSteps, createProductionStep, getPhotos, deletePhoto } from '@/lib/api';
+import { Lightbox } from '@/components/Lightbox';
+
+const DIVISION_ORDER = ['Cutting','Sablon','Jahit','Finishing','QC','Packing','Delivery'];
+
+function sortSteps(steps: any[]) {
+  return [...steps].sort((a, b) => {
+    const ai = DIVISION_ORDER.indexOf(a.step_name);
+    const bi = DIVISION_ORDER.indexOf(b.step_name);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+}
 
 interface UpdateProsesProps {
   language: 'id' | 'en';
@@ -26,19 +40,6 @@ const STATUS_OPTIONS = [
 ];
 
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'Falghe2024';
-
-function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backdropFilter: 'blur(14px)', background: 'rgba(0,0,0,0.5)' }}
-      onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} className="relative">
-        <img src={url} alt="foto produksi" className="max-w-[90vw] max-h-[80vh] rounded-xl object-contain" />
-        <button onClick={onClose} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70">✕</button>
-      </div>
-    </div>
-  );
-}
 
 export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) {
   const [orderCode, setOrderCode] = useState('');
@@ -69,16 +70,15 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
       step3: 'Langkah 3: Perbarui Status',
       inputPlaceholder: 'Masukkan kode pesanan',
       searchButton: 'Cari',
-      division: 'Divisi Produksi',
       selectDivision: 'Pilih divisi...',
       selectStatus: 'Pilih status...',
       notes: 'Catatan (Opsional)',
       notesPlaceholder: 'Tambahkan catatan tentang progress...',
       images: 'Upload Foto ke Cloudinary (Opsional)',
-      dragDrop: 'Drag & drop foto di sini atau klik untuk memilih',
+      dragDrop: 'Drag & drop foto atau klik untuk memilih',
       submit: 'Kirim Update',
       noOrder: 'Pesanan tidak ditemukan',
-      successMessage: 'Update berhasil dikirim!',
+      successMessage: 'Update berhasil! Entry lama otomatis diganti.',
       errorMessage: 'Terjadi kesalahan. Silakan coba lagi.',
       backToTracking: 'Kembali ke Tracking',
       loading: 'Memproses...',
@@ -91,7 +91,6 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
       deletePassword: 'Masukkan password admin',
       deleteBtn: 'Hapus',
       wrongPassword: 'Password salah',
-      duplicateWarning: 'Divisi dan status ini sudah pernah diinput. Lanjutkan?',
     },
     en: {
       title: 'Update Production Process',
@@ -101,16 +100,15 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
       step3: 'Step 3: Update Status',
       inputPlaceholder: 'Enter order code',
       searchButton: 'Search',
-      division: 'Production Division',
       selectDivision: 'Select division...',
       selectStatus: 'Select status...',
       notes: 'Notes (Optional)',
       notesPlaceholder: 'Add notes about progress...',
       images: 'Upload Photos to Cloudinary (Optional)',
-      dragDrop: 'Drag & drop photos here or click to select',
+      dragDrop: 'Drag & drop photos or click to select',
       submit: 'Submit Update',
       noOrder: 'Order not found',
-      successMessage: 'Update submitted successfully!',
+      successMessage: 'Update submitted! Previous entry auto-replaced.',
       errorMessage: 'An error occurred. Please try again.',
       backToTracking: 'Back to Tracking',
       loading: 'Processing...',
@@ -123,7 +121,6 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
       deletePassword: 'Enter admin password',
       deleteBtn: 'Delete',
       wrongPassword: 'Wrong password',
-      duplicateWarning: 'This division and status has been submitted before. Continue?',
     },
   };
 
@@ -133,7 +130,7 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
         getProductionSteps(orderId),
         getPhotos(orderId),
       ]);
-      setExistingSteps(steps || []);
+      setExistingSteps(sortSteps(steps || []));
       setStepPhotos(Array.isArray(pics) ? pics : []);
     } catch (err) { console.error(err); }
   };
@@ -178,11 +175,6 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
     });
   };
 
-  const isDuplicate = () => {
-    const divName = DIVISIONS.find(d => d.id === selectedDivision)?.name || selectedDivision;
-    return existingSteps.some(s => s.step_name === divName && s.status === status);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(''); setSuccess('');
@@ -190,11 +182,12 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
       setError(language === 'id' ? 'Lengkapi semua field yang diperlukan' : 'Please fill all required fields');
       return;
     }
-    if (isDuplicate() && !window.confirm(t[language].duplicateWarning)) return;
 
     setIsLoading(true);
     try {
       const stepName = DIVISIONS.find(d => d.id === selectedDivision)?.name || selectedDivision;
+
+      // Backend auto-delete entry lama divisi yang sama sebelum insert baru
       await createProductionStep({
         orderId: foundOrder.id, stepName, status, notes,
         startedAt: new Date().toISOString(),
@@ -208,9 +201,7 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              orderId: foundOrder.id,
-              stepName,
-              notes,
+              orderId: foundOrder.id, stepName, notes,
               fileName: image.name.replace(/\.[^.]+$/, '.jpg'),
               fileBase64: base64,
               mimeType: 'image/jpeg',
@@ -259,7 +250,7 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
     setError(''); setSuccess('');
   };
 
-  const getStatusColor = (s: string) => s === 'completed' ? 'text-green-600 bg-green-50' : s === 'in_progress' ? 'text-orange-600 bg-orange-50' : 'text-gray-500 bg-gray-50';
+  const getStatusColor = (s: string) => s === 'completed' ? 'text-[#FB5F02] bg-[#FB5F02]/10' : s === 'in_progress' ? 'text-orange-600 bg-orange-50' : 'text-gray-500 bg-gray-50';
   const getStatusLabel = (s: string) => s === 'completed' ? 'Completed' : s === 'in_progress' ? 'In Progress' : 'Pending';
 
   const inputClass = "w-full px-4 py-2 rounded-lg bg-secondary border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-[#FB5F02]";
@@ -285,16 +276,15 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
       </div>
 
       <div className="container max-w-4xl py-8 px-4 space-y-6">
+
         {/* Step 1 Search */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="sbc-card p-6">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="sbc-card p-6">
           <h2 className="text-lg font-semibold mb-4">{t[language].step1}</h2>
           <div className="flex gap-2">
             <input placeholder={t[language].inputPlaceholder} value={orderCode}
               onChange={e => setOrderCode(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !foundOrder && handleSearch()}
-              disabled={!!foundOrder}
-              className={inputClass} />
+              disabled={!!foundOrder} className={inputClass} />
             {!foundOrder ? (
               <button onClick={handleSearch} disabled={isSearching}
                 className="px-4 py-2 rounded-lg bg-[#FB5F02] text-white hover:bg-[#E85500] disabled:opacity-60 font-medium flex items-center gap-2 transition-colors whitespace-nowrap">
@@ -325,8 +315,7 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
 
         {/* History */}
         {foundOrder && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-            className="sbc-card p-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="sbc-card p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <Clock className="w-5 h-5 text-[#FB5F02]" />
               {t[language].historyTitle}
@@ -358,7 +347,7 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
                     {stepPhotos.filter(p => p.step_name === step.step_name).map(p => (
                       <div key={p.id} className="relative mt-2">
                         <img src={p.photo_url} alt={p.step_name}
-                          className="rounded-lg w-full h-36 object-cover border border-border cursor-pointer"
+                          className="rounded-lg w-full h-36 object-cover border border-border cursor-zoom-in hover:opacity-90 transition-opacity"
                           onClick={() => setLightboxUrl(p.photo_url)} />
                         <button onClick={() => handleDeletePhoto(p)}
                           className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-1">
@@ -376,8 +365,7 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
         {/* Update Form */}
         {foundOrder && (
           <motion.form initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-            onSubmit={handleSubmit}
-            className="sbc-card p-6 space-y-6">
+            onSubmit={handleSubmit} className="sbc-card p-6 space-y-6">
             {success && (
               <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
                 <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
@@ -408,12 +396,13 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
                   <textarea placeholder={t[language].notesPlaceholder} value={notes}
                     onChange={e => setNotes(e.target.value)}
                     className="w-full px-4 py-2 rounded-lg bg-secondary text-foreground border border-border focus:outline-none focus:ring-2 focus:ring-[#FB5F02]"
-                    rows={4} />
+                    rows={3} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-2">{t[language].images}</label>
                   <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-[#FB5F02] transition-colors">
-                    <input type="file" multiple accept="image/*" onChange={e => setImages([...images, ...Array.from(e.target.files || [])])}
+                    <input type="file" multiple accept="image/*"
+                      onChange={e => setImages([...images, ...Array.from(e.target.files || [])])}
                       className="hidden" id="image-input" />
                     <label htmlFor="image-input" className="cursor-pointer flex flex-col items-center gap-2">
                       <Upload className="w-6 h-6 text-muted-foreground" />
@@ -460,8 +449,10 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
                   </div>
                   <p className="text-sm text-muted-foreground mb-6">{t[language].deleteConfirm}</p>
                   <div className="flex gap-3">
-                    <button onClick={() => { setDeleteStep(null); setDeleteTargetId(null); }} className="flex-1 py-2 rounded-lg border border-border hover:bg-secondary font-medium">{t[language].cancel}</button>
-                    <button onClick={() => setDeleteStep('password')} className="flex-1 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 font-medium">{t[language].deleteBtn}</button>
+                    <button onClick={() => { setDeleteStep(null); setDeleteTargetId(null); }}
+                      className="flex-1 py-2 rounded-lg border border-border hover:bg-secondary font-medium">{t[language].cancel}</button>
+                    <button onClick={() => setDeleteStep('password')}
+                      className="flex-1 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 font-medium">{t[language].deleteBtn}</button>
                   </div>
                 </>
               )}
@@ -480,8 +471,10 @@ export function UpdateProses({ language, onBackToTracking }: UpdateProsesProps) 
                     placeholder="••••••••" />
                   {deleteError && <p className="text-xs text-red-600 mb-4">{deleteError}</p>}
                   <div className="flex gap-3 mt-4">
-                    <button onClick={() => { setDeleteStep(null); setDeleteTargetId(null); setDeletePassword(''); setDeleteError(''); }} className="flex-1 py-2 rounded-lg border border-border hover:bg-secondary font-medium">{t[language].cancel}</button>
-                    <button onClick={handleDeleteWithPassword} disabled={isDeleting} className="flex-1 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-60 font-medium flex items-center justify-center">
+                    <button onClick={() => { setDeleteStep(null); setDeleteTargetId(null); setDeletePassword(''); setDeleteError(''); }}
+                      className="flex-1 py-2 rounded-lg border border-border hover:bg-secondary font-medium">{t[language].cancel}</button>
+                    <button onClick={handleDeleteWithPassword} disabled={isDeleting}
+                      className="flex-1 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-60 font-medium flex items-center justify-center">
                       {isDeleting ? <Loader className="w-4 h-4 animate-spin" /> : t[language].deleteBtn}
                     </button>
                   </div>

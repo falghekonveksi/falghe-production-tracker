@@ -34,7 +34,11 @@ module.exports = async function handler(req, res) {
     if (req.method === 'GET') {
       const { orderId } = req.query;
       if (!orderId) return res.status(400).json({ error: 'Missing orderId' });
-      const rows = await sql`SELECT * FROM production_steps WHERE order_id = ${parseInt(orderId)} ORDER BY created_at DESC`;
+      const rows = await sql`
+        SELECT * FROM production_steps
+        WHERE order_id = ${parseInt(orderId)}
+        ORDER BY created_at DESC
+      `;
       return res.status(200).json(rows);
     }
 
@@ -42,24 +46,47 @@ module.exports = async function handler(req, res) {
       const { orderId, stepName, status, notes, startedAt, completedAt } = req.body;
       if (!orderId || !stepName || !status) return res.status(400).json({ error: 'Missing required fields' });
 
+      // AUTO DELETE entry lama dengan divisi yang sama sebelum insert baru
+      await sql`
+        DELETE FROM production_steps
+        WHERE order_id = ${orderId} AND step_name = ${stepName}
+      `;
+
+      // Insert entry baru
       const step = await sql`
         INSERT INTO production_steps (order_id, step_name, status, notes, started_at, completed_at)
-        VALUES (${orderId}, ${stepName}, ${status}, ${notes || null}, ${startedAt || null}, ${completedAt || null})
+        VALUES (
+          ${orderId}, ${stepName}, ${status},
+          ${notes || null},
+          ${startedAt || null},
+          ${completedAt || null}
+        )
         RETURNING *
       `;
 
+      // Recalculate progress
       const allSteps = await sql`SELECT status FROM production_steps WHERE order_id = ${orderId}`;
       const progress = calculateProgress(allSteps);
-      const orderStatus = progress === 100 ? 'completed' : allSteps.some(s => s.status === 'in_progress') ? 'in_progress' : 'pending';
-      await sql`UPDATE orders SET progress = ${progress}, status = ${orderStatus} WHERE id = ${orderId}`;
+      const orderStatus = progress === 100 ? 'completed'
+        : allSteps.some(s => s.status === 'in_progress') ? 'in_progress'
+        : 'pending';
 
+      await sql`
+        UPDATE orders SET progress = ${progress}, status = ${orderStatus}
+        WHERE id = ${orderId}
+      `;
+
+      // Kirim WA notif
       const orderRows = await sql`SELECT client_name, whatsapp FROM orders WHERE id = ${orderId}`;
       if (orderRows[0]) {
         const { client_name, whatsapp } = orderRows[0];
-        const statusLabel = status === 'completed' ? 'Selesai ✅' : status === 'in_progress' ? 'Sedang Berjalan 🔄' : 'Menunggu ⏳';
+        const statusLabel = status === 'completed' ? 'Selesai ✅'
+          : status === 'in_progress' ? 'Sedang Berjalan 🔄'
+          : 'Menunggu ⏳';
         const message = `Halo ${client_name}! 👋\n\nUpdate produksi Falghe:\n\n📦 Divisi: *${stepName}*\n📊 Status: *${statusLabel}*\n${notes ? `📝 Catatan: ${notes}\n` : ''}⚡ Progress: *${progress}%*\n\nTerima kasih telah mempercayai Falghe! 🧡`;
         await sendWANotification(whatsapp, message);
       }
+
       return res.status(201).json(step[0]);
     }
 
@@ -72,7 +99,9 @@ module.exports = async function handler(req, res) {
         const { order_id } = stepRows[0];
         const allSteps = await sql`SELECT status FROM production_steps WHERE order_id = ${order_id}`;
         const progress = calculateProgress(allSteps);
-        const orderStatus = progress === 100 ? 'completed' : allSteps.some(s => s.status === 'in_progress') ? 'in_progress' : 'pending';
+        const orderStatus = progress === 100 ? 'completed'
+          : allSteps.some(s => s.status === 'in_progress') ? 'in_progress'
+          : 'pending';
         await sql`UPDATE orders SET progress = ${progress}, status = ${orderStatus} WHERE id = ${order_id}`;
       }
       return res.status(200).json({ success: true });
